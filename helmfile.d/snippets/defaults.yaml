@@ -113,6 +113,8 @@ environments:
             logLevel: "warning"
           kube-descheduler:
             enabled: false
+          external-secrets:
+            POLLER_INTERVAL_MILLISECONDS: 60000
           loki:
             enabled: false
           oauth2-proxy: {}
