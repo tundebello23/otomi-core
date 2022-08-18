@@ -2,7 +2,7 @@
 {{- $suffix := (true | ternary "" ".monitoring.svc.cluster.local") }}
 {{- $homeReceivers := .root | get "home.receivers" (list "slack") }}
 {{- $isHomeMonitored:= .root | get "otomi.isHomeMonitored" }}
-{{- $isWatchdogEnabled:= .instance | get "alerts.watchdog.enabled" }}
+{{- $isWatchdogEnabled:= .instance | get "alerts.watchdog.enabled" false }}
 {{- $watchdogEndpoints := .instance | get "alerts.watchdog.endpoints" ""}}
 {{- $isHomeWatchdogEnabled:= .root | get "home.watchdog.enabled" }}
 {{- $homewatchdogEndpoints := .root | get "home.watchdog.endpoints" ""}}
