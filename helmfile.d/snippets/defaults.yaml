@@ -4,6 +4,9 @@ environments:
       - azure:
           appgw:
             isManaged: true
+        alerts:
+          watchdog:
+            enabled: false
         apps:
           alertmanager:
             enabled: false
