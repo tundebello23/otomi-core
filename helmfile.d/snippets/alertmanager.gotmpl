@@ -2,6 +2,10 @@
 {{- $suffix := (true | ternary "" ".monitoring.svc.cluster.local") }}
 {{- $homeReceivers := .root | get "home.receivers" (list "slack") }}
 {{- $isHomeMonitored:= .root | get "otomi.isHomeMonitored" }}
+{{- $isWatchdogEnabled:= .instance | get "alerts.watchdog.enabled" }}
+{{- $watchdogReceivers := .instance | get "alerts.watchdog.receivers" ""}}
+{{- $isHomeWatchdogEnabled:= .root | get "home.watchdog.enabled" }}
+{{- $homeWatchdogReceivers := .root | get "home.watchdog.receivers" ""}}
 global:
 {{- if or (has "slack" $receivers ) (and $isHomeMonitored (has "slack" $homeReceivers)) }}
   slack_api_url: {{ .instance | get "alerts.slack.url" (.root | get "alerts.slack.url" (.root | get "home.slack.url" nil)) }}
@@ -27,7 +31,10 @@ route:
   routes:
     - match:
         alertname: Watchdog
-      receiver: "null"
+      receiver: "watchdog"
+    - match:
+        alertname: Watchdog
+      receiver: "watchdog-home"
     - match:
         alertname: CPUThrottlingHigh
       receiver: "null"
@@ -47,6 +54,10 @@ route:
     {{- end }}
 receivers:
   - name: "null"
+  - name: "watchdog"
+{{- if $isWatchdogEnabled }}
+    {{- $watchdogReceivers | nindent 4 }}
+{{- end }}
   - name: default
 {{- if has "slack" $receivers  }}
     slack_configs:
@@ -101,6 +112,10 @@ receivers:
     {{- end }}
 {{- end }}
 {{- if $isHomeMonitored }}
+  - name: "watchdog-home"
+  {{- if $isHomeWatchdogEnabled }}
+    {{- $homeWatchdogReceivers | nindent 4 }}
+  {{- end }}
   - name: critical-home
   {{- $receivers := .root.home | get "receivers" }}
     # sending criticals also to home to be aware of issues
