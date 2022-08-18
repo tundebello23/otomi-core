@@ -57,6 +57,9 @@ environments:
                 username: otomi-admin
           hello:
             enabled: false
+          home:
+            watchdog:
+              enabled: false
           httpbin:
             enabled: false
           ingress-nginx:
