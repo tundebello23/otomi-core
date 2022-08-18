@@ -79,8 +79,8 @@ definitions:
           enabled:
             default: false
             type: boolean
-          receivers:
-            description: A YAML array of receivers for Watchdog Alerts
+          endpoints:
+            description: A YAML array of endpoints for Watchdog Alerts
             $ref: '#/definitions/rawValues'
             x-secret: ''
       opsgenie:
