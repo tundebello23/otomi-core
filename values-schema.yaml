@@ -127,12 +127,17 @@ definitions:
         type: integer
         default: 1
   autoscalingEnabled:
-    allOf:
-      - properties:
-          enabled:
-            default: true
-            type: boolean
-      - $ref: '#/definitions/autoscaling'
+    additionalProperties: false
+    properties:
+      enabled:
+        default: true
+        type: boolean
+      maxReplicas:
+        type: integer
+        default: 10
+      minReplicas:
+        type: integer
+        default: 1
   aws:
     definitions:
       accessKey:
@@ -1667,8 +1672,8 @@ properties:
                       - aws
                       - azure
                       - gcs
-                      - file
-                    default: file
+                      - filesystem
+                    default: filesystem
           registry:
             properties:
               secret:
@@ -2049,6 +2054,8 @@ properties:
       external-secrets:
         additionalProperties: false
         properties:
+          _rawValues:
+            $ref: '#/definitions/rawValues'
           enabled:
             type: boolean
           logLevel:
@@ -2096,40 +2103,42 @@ properties:
                 type: string
             required:
               - duration
-          aws:
-            type: object
-          azure:
-            description: Missing from docs but available with this schema.
+          storage:
             properties:
-              account_key:
+              aws:
+                type: object
+              azure:
+                description: Missing from docs but available with this schema.
+                properties:
+                  account_key:
+                    type: string
+                    x-secret: ''
+                  account_name:
+                    type: string
+                  container_name:
+                    type: string
+                type: object
+              bigtable:
+                type: object
+              cassandra:
+                type: object
+              gcs:
+                type: object
+              swift:
+                type: object
+              local:
+                type: object
+              storageType:
                 type: string
-                x-secret: ''
-              account_name:
-                type: string
-              container_name:
-                type: string
-            type: object
-          bigtable:
-            type: object
-          cassandra:
-            type: object
-          gcs:
-            type: object
-          swift:
-            type: object
-          local:
-            type: object
-          storageType:
-            type: string
-            enum:
-              - aws
-              - azure
-              - bigtable
-              - cassandra
-              - filesystem
-              - gcs
-              - swift
-              - local
+                enum:
+                  - aws
+                  - azure
+                  - bigtable
+                  - cassandra
+                  - filesystem
+                  - gcs
+                  - swift
+                  - local
           v11StartDate:
             description: Set this to a date just after deployment in case of an upgrade. (Otomi started at v9 with filesystem.)
             title: Schema v11 start date
@@ -2373,11 +2382,11 @@ properties:
                 config:
                   additionalProperties: false
                   properties:
-                    storageAccountName:
+                    storageAccount:
                       type: string
                       description: The used Azure storage account
                       $ref: '#/definitions/wordCharacterPattern'
-                    resourceGroupStAcc:
+                    resourceGroup:
                       type: string
                       description: The resource group of the storage account
                       $ref: '#/definitions/wordCharacterPattern'

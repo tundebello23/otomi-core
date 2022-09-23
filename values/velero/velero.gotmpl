@@ -85,6 +85,7 @@ configuration:
       {{- with $provider | get "aws" nil }}
       region: {{ .config.region }}
       {{- end }}
+  # defaultVolumesToRestic - if set Velero will back up all pod volumes using Restic with the exception of: service account token, secrets, config maps and hostpath volumes
   defaultVolumesToRestic: true
 
 credentials:
@@ -114,6 +115,7 @@ kubectl:
       cpu: 100m
       memory: 32Mi
   labels: 
+    # do not inject sidecar, so the kubectl k8s job can exit container and return the completed status
     sidecar.istio.io/inject: "false"
 
 deployRestic: true
@@ -137,6 +139,14 @@ schedules:
       ttl: {{ $v.backup.platformSchedule.ttl }}
       includedNamespaces:
       - keycloak
+  drone:
+    disabled: false
+    schedule: {{ $v.backup.platformSchedule.schedule }}
+    useOwnerReferencesInBackup: false
+    template:
+      ttl: {{ $v.backup.platformSchedule.ttl }}
+      includedNamespaces:
+      - drone
   {{- if $v.apps.harbor.enabled }}
   harbor:
     disabled: false
@@ -166,6 +176,16 @@ schedules:
       ttl: {{ $v.backup.platformSchedule.ttl }}
       includedNamespaces:
       - argocd
+  {{- end }}
+  {{- if $v.apps.kubeapps.enabled }}
+  kubeapps:
+    disabled: false
+    schedule: {{ $v.backup.platformSchedule.schedule }}
+    useOwnerReferencesInBackup: false
+    template:
+      ttl: {{ $v.backup.platformSchedule.ttl }}
+      includedNamespaces:
+      - kubeapps
   {{- end }}
   {{- end }}
   {{- if $v.backup.teamSchedule.enabled }}
