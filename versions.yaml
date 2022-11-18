@@ -1,4 +1,4 @@
-api: repo-ref
+api: revert-to-stable
 console: main
 tasks: 0.2.31
 tools: 1.4.25
