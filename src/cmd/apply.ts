@@ -1,7 +1,5 @@
 import { mkdirSync, rmdirSync, writeFileSync } from 'fs'
 import { isEmpty } from 'lodash'
-import { Argv, CommandModule } from 'yargs'
-import { $, nothrow } from 'zx'
 import { prepareDomainSuffix } from 'src/common/bootstrap'
 import { cleanupHandler, prepareEnvironment } from 'src/common/cli'
 import { logLevelString, terminal } from 'src/common/debug'
@@ -12,6 +10,8 @@ import { getFilename } from 'src/common/utils'
 import { getCurrentVersion, getImageTag } from 'src/common/values'
 import { getParsedArgs, HelmArguments, helmOptions, setParsedArgs } from 'src/common/yargs'
 import { ProcessOutputTrimmed } from 'src/common/zx-enhance'
+import { Argv, CommandModule } from 'yargs'
+import { $, nothrow } from 'zx'
 import { commit } from './commit'
 import { upgrade } from './upgrade'
 
@@ -37,9 +37,10 @@ const applyAll = async () => {
   d.info('Start apply all')
   const prevState = await getDeploymentState()
   d.debug(`Deployment state: ${JSON.stringify(prevState)}`)
-  const tag = await getImageTag()
-  const version = await getCurrentVersion()
-  await setDeploymentState({ status: 'deploying', deployingTag: tag, deployingVersion: version })
+  const deployingTag = await getImageTag()
+  const deployingVersion = await getCurrentVersion()
+  const version = prevState.version ?? deployingVersion
+  await setDeploymentState({ status: 'deploying', deployingTag, deployingVersion, version })
 
   const output: ProcessOutputTrimmed = await hf(
     { fileOpts: 'helmfile.tpl/helmfile-init.yaml', args: 'template' },
