@@ -5,7 +5,7 @@ ARG DEBIAN_FRONTEND=noninteractive
 # https://github.com/kubernetes/kubernetes/releases
 ARG KUBECTL_VERSION=1.23.8
 # https://github.com/helm/helm/tags
-ARG HELM_VERSION=3.9.0
+ARG HELM_VERSION=3.10.3
 # https://github.com/databus23/helm-diff/releases
 ARG HELM_DIFF_VERSION=3.5.0
 # https://github.com/jkroepke/helm-secrets/releases
