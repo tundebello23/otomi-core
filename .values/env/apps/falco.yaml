@@ -1,6 +1,5 @@
 apps:
     falco:
-        enabled: false
         _rawValues:
             customRules:
                 otomi-rules.yaml: >-
@@ -20,11 +19,12 @@ apps:
                             docker.io/otomi/core,
                             docker.io/otomi/tasks,
                             docker.io/otomi/api,
+                            docker.io/otomi/tools,
                             docker.io/drone/drone-runner-kube,
-                            docker.io/grafana/promtail,
-                            quay.io/argoprojlabs/argocd-image-updater
+                            docker.io/grafana/promtail
                           ) or (k8s.ns.name = "kube-system")
                             or (k8s.ns.name = "ingress")
+                            or (k8s.ns.name = "argocd")
                         )
                     - macro: user_known_write_below_etc_activities
                       condition: (
@@ -38,6 +38,10 @@ apps:
                           container.image.repository in (
                             quay.io/prometheus/node-exporter
                           )
+                        )
+                    - macro: user_known_mount_in_privileged_containers
+                      condition: (
+                          k8s.ns.name = "kube-system"
                         )
                     - macro: user_trusted_containers
                       condition: (
@@ -70,6 +74,7 @@ apps:
                             docker.io/grafana/grafana
                           ) or (k8s.ns.name = "ingress")
                             or (k8s.ns.name = "keycloak")
+                            or (k8s.ns.name = "argocd")
                         )
                     - macro: excessively_capable_container
                       condition: (
@@ -88,9 +93,16 @@ apps:
                             docker.io/gitea/gitea
                           ) or (k8s.ns.name = "keycloak")  
                         )
+                    - macro: login_doing_dns_lookup
+                      condition: (
+                          container.image.repository in (
+                            docker.io/otomi/tasks
+                          )
+                        )
                     - macro: user_known_create_files_below_dev_activities
                       condition: (
                           container.image.repository in (
                             quay.io/operatorhubio/catalog
                           )
                         )
+        enabled: true
