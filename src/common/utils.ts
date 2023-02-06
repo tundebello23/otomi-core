@@ -8,6 +8,7 @@ import walk from 'ignore-walk'
 import { dump, load } from 'js-yaml'
 import { omit } from 'lodash'
 import { resolve } from 'path'
+import ThrottledPromise from 'throttled-promise'
 import { $, ProcessOutput } from 'zx'
 import { env } from './envalid'
 
