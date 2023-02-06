@@ -2,7 +2,7 @@
 /* eslint-disable no-await-in-loop */
 import $RefParser, { JSONSchema } from '@apidevtools/json-schema-ref-parser'
 import cleanDeep, { CleanOptions } from 'clean-deep'
-import { existsSync, pathExists, readFileSync } from 'fs-extra'
+import { ensureDir, existsSync, pathExists, readFileSync, writeFile } from 'fs-extra'
 import { readdir, readFile } from 'fs/promises'
 import walk from 'ignore-walk'
 import { dump, load } from 'js-yaml'
@@ -198,4 +198,25 @@ export const semverCompare = (a, b) => {
     if (Number.isNaN(na) && !Number.isNaN(nb)) return -1
   }
   return 0
+}
+
+export const manifestExplodeToDir = async (content, dir) => {
+  await ThrottledPromise.all(
+    content.map(async (resource: string) => {
+      const kindMatches = resource.match(/kind: ['"]?([A-Za-z-]*)['"]?/)
+      if (!kindMatches) return
+      // eslint-disable-next-line prefer-destructuring
+      const kind = kindMatches[1]
+      const nameMatches = resource.match(/[\s]+name: ['"]?([A-Za-z0-9-:]*)['"]?/)
+      // eslint-disable-next-line prefer-destructuring
+      const name = nameMatches![1].replaceAll(':', '-')
+      if (name.startsWith('job-demo-base')) console.log('nameMatches: ', nameMatches)
+      const namespaceMatches = resource.match(/[\s]+namespace: ['"]?([A-Za-z0-9-]*)['"]?/)
+      const namespace = namespaceMatches ? namespaceMatches[1] : 'global'
+      const filename = `${dir}/${kind}/${namespace}-${name}.yaml`
+      await ensureDir(`${dir}/${kind}`)
+      await writeFile(filename, resource)
+    }),
+    10,
+  )
 }
