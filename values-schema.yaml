@@ -1619,6 +1619,9 @@ properties:
             default: 'INFO'
           replicas:
             type: integer
+          pdbMinAvailable:
+            type: integer
+            default: 0
           image:
             $ref: '#/definitions/imageSimple'
           resources:

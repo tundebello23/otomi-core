@@ -60,3 +60,7 @@ crds:
       memory: 64Mi
 
 otomiVersions: {{- toYaml .Values.versions | nindent 2 }}
+
+pdb:
+  controllerManager:
+    minAvailable: {{ $g | get "pdbMinAvailable" }} 
