@@ -24,3 +24,4 @@ apps:
             - sandbox
         logLevel: INFO
         replicas: 1
+        pdbMinAvailable: 1
