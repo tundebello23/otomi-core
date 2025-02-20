@@ -3,13 +3,15 @@ labels:
   prometheus: system
   helm.sh/resource-policy: keep
 instances: 2
-imageName: ghcr.io/cloudnative-pg/postgresql:15.3
+imageName: ghcr.io/cloudnative-pg/postgresql:15.10
 storage:
   storageClass: ""
   size: 5Gi
 walStorage:
   storageClass: ""
   size: 5Gi
+
+resources: {}
 
 monitoring: true
 
@@ -18,7 +20,6 @@ clusterAffinity:
     enablePodAntiAffinity: true
     topologyKey: kubernetes.io/hostname
     podAntiAffinityType: preferred
-
 
 # Example for backups: 
 # clusterBackup:
@@ -34,8 +35,6 @@ clusterAffinity:
 #           name: minio-creds
 #           key: MINIO_SECRET_KEY
 
-
-
 clusterSpec:
   bootstrap:
     initdb:
@@ -47,15 +46,11 @@ backup:
   suspend: false
   immediate: true
   target: primary
-  schedule: "0 0 0 * * *"
+  schedule: "0 0 * * *"
   backupOwnerReference: none
   retentionPolicy: 7d
   type: minioLocal
-  azure:
-    storageAccount: ""
-    container: ""
-  s3:
-    endpointURL: ""
-    bucket: ""
-  gcs: 
-    bucket: ""
+  minioLocal:
+    destinationPath: ""
+  linode:
+    destinationPath: ""

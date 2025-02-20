@@ -1,4 +1,4 @@
-FROM otomi/tools:v1.6.0 as ci
+FROM linode/apl-tools:v2.8.7 AS ci
 
 ENV APP_HOME=/home/app/stack
 
@@ -9,7 +9,6 @@ ARG SKIP_TESTS='false'
 ENV NODE_ENV='test'
 ENV CI=true
 ENV ENV_DIR=$APP_HOME/env
-ENV IN_DOCKER='1'
 ENV VERBOSITY='2'
 ENV DISABLE_SYNC='1'
 ENV NODE_PATH='dist'
@@ -22,17 +21,14 @@ RUN npm ci --ignore-scripts && npm run compile
 RUN if [ "$SKIP_TESTS" = 'false' ]; then ln -s $APP_HOME/tests/fixtures env && npm test && rm env; fi
 
 # --------------- Cleanup
-FROM ci as clean
+FROM ci AS clean
 
 # below command removes the packages specified in devDependencies and set NODE_ENV to production
 RUN npm prune --production
 
-#-----------------------------
-FROM otomi/tools:v1.6.0 as prod
-
+FROM linode/apl-tools:v2.8.7  AS prod
 ENV APP_HOME=/home/app/stack
 ENV ENV_DIR=/home/app/stack/env
-ENV IN_DOCKER='1'
 ENV VERBOSITY='0'
 ENV NODE_NO_WARNINGS='1'
 ENV NODE_PATH='dist'

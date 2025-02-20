@@ -7,22 +7,13 @@
 {{- $sops := $v | get "kms.sops" dict }}
 {{- $giteaValuesUrl := printf "gitea.%s/otomi/values" $v.cluster.domainSuffix }}
 {{- $helmChartCatalog := printf "https://gitea.%s/otomi/charts.git" $v.cluster.domainSuffix }}
+{{- $defaultPlatformAdminEmail := printf "platform-admin@%s" $v.cluster.domainSuffix }}
 {{- $sopsEnv := tpl (readFile "../../helmfile.d/snippets/sops-env.gotmpl") $sops }}
 
 replicaCount: 1
 clusterDomainSuffix: {{ $v.cluster.domainSuffix }}
 
-resources:
-{{- with $o | get "resources.api" nil }}
-  {{- toYaml . | nindent 2 }}
-{{- else }}
-  limits:
-    cpu: 500m
-    memory: 512Mi
-  requests:
-    cpu: 100m
-    memory: 256Mi
-{{- end }}
+resources: {{- $o.resources.api | toYaml | nindent 2 }}
 
 {{- tpl (readFile "../../helmfile.d/snippets/job.gotmpl") (dict "item" "api" "v" $v "skipScript" true) }}
 
@@ -34,6 +25,7 @@ secrets:
   
 env:
   HELM_CHART_CATALOG: {{ $helmChartCatalog }}
+  DEFAULT_PLATFORM_ADMIN_EMAIL: {{ $defaultPlatformAdminEmail }}
   DEBUG: 'otomi:*,-otomi:authz,-otomi:repo'
   VERBOSITY: '1'
   GIT_REPO_URL: {{ $o | get "git.repoUrl" $giteaValuesUrl }}
@@ -46,7 +38,6 @@ env:
   CUSTOM_ROOT_CA: |
     {{- $v._derived.caCert | nindent 4 }}
   {{- end }}
-  IN_DOCKER: '1'
   EDITOR_INACTIVITY_TIMEOUT: {{ $o.editorInactivityTimeout }}
   DRONE_WEBHOOK_SECRET: {{ $d | get "sharedSecret" }}
 
@@ -58,17 +49,7 @@ core:
 
 tools:
   {{- tpl (readFile "../../helmfile.d/snippets/job.gotmpl") (dict "item" "core" "v" $v "skipScript" true) | nindent 2 }}
-  resources:
-  {{- with $o | get "resources.tools" nil }}
-    {{- toYaml . | nindent 4 }}
-  {{- else }}
-    limits:
-      cpu: 600m
-      memory: 512Mi
-    requests:
-      cpu: 100m
-      memory: 128Mi
-  {{- end }}
+  resources: {{- $o.resources.tools | toYaml | nindent 4 }}
   env:
     DEBUG: '*'
     VERBOSITY: '1'

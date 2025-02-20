@@ -4,11 +4,12 @@ teamConfig:
         managedMonitoring:
             alertmanager: true
             grafana: true
-            prometheus: true
         selfService:
             access:
                 - shell
                 - downloadCertificateAuthority
+            policies:
+                - edit policies
     demo:
         alerts:
             email: {}
@@ -18,16 +19,10 @@ teamConfig:
             slack:
                 channel: aaaaa
                 channelCrit: aaaaa
-        billingAlertQuotas:
-            teamCpuMonthQuotaReached:
-                quota: 150
-            teamMemMonthQuotaReached:
-                quota: 200
         id: demo
         managedMonitoring:
             alertmanager: true
             grafana: true
-            prometheus: true
         networkPolicy:
             egressPublic: true
             ingressPrivate: false
@@ -36,22 +31,27 @@ teamConfig:
         resourceQuota:
             services.loadbalancers: '1'
         selfService:
-            apps: []
-            service:
-                - ingress
-                - networkPolicy
-            team:
-                - alerts
             access:
                 - shell
                 - downloadCertificateAuthority
+            apps: []
+            service:
+                - ingress
+            team:
+                - alerts
+            policies:
+                - edit policies
     dev:
         id: dev
         managedMonitoring:
             alertmanager: true
             grafana: true
-            prometheus: true
         selfService:
             access:
                 - shell
                 - downloadCertificateAuthority
+            policies:
+                - edit policies
+        networkPolicy:
+            egressPublic: false
+            ingressPrivate: true

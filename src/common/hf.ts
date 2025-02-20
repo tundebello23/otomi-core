@@ -1,11 +1,12 @@
 import { pathExists } from 'fs-extra'
 import { readFile } from 'fs/promises'
+import { glob } from 'glob'
 import { has, set } from 'lodash'
 import { parse } from 'yaml'
-import { $, ProcessOutput, ProcessPromise } from 'zx'
+import { $, ProcessPromise } from 'zx'
 import { logLevels, terminal } from './debug'
 import { env } from './envalid'
-import { asArray, extract, flattenObject, getValuesSchema, isCore, readdirRecurse, rootDir } from './utils'
+import { asArray, extract, flattenObject, getValuesSchema, isCore, rootDir } from './utils'
 import { HelmArguments, getParsedArgs } from './yargs'
 import { ProcessOutputTrimmed, Streams } from './zx-enhance'
 
@@ -18,7 +19,7 @@ type HFParams = {
   args: string | string[]
 }
 
-const hfCore = (args: HFParams, envDir = env.ENV_DIR): ProcessPromise<ProcessOutput> => {
+const hfCore = (args: HFParams, envDir = env.ENV_DIR): ProcessPromise => {
   const paramsCopy: HFParams = { ...args }
   paramsCopy.fileOpts = asArray(paramsCopy.fileOpts ?? [])
   paramsCopy.labelOpts = asArray(paramsCopy.labelOpts ?? [])
@@ -61,7 +62,7 @@ type HFOptions = {
 }
 
 export const hf = async (args: HFParams, opts?: HFOptions, envDir?: string): Promise<ProcessOutputTrimmed> => {
-  const proc: ProcessPromise<ProcessOutput> = hfCore(args, envDir)
+  const proc: ProcessPromise = hfCore(args, envDir)
   if (opts?.streams?.stdout) proc.stdout.pipe(opts.streams.stdout, { end: false })
   if (opts?.streams?.stderr) proc.stderr.pipe(opts.streams.stderr, { end: false })
   return new ProcessOutputTrimmed(await proc)
@@ -70,12 +71,14 @@ export const hf = async (args: HFParams, opts?: HFOptions, envDir?: string): Pro
 export interface ValuesArgs {
   // Only files from values
   filesOnly?: boolean
+  // FIXME: 'withWorkloadValues' should be renamed to 'withFiles' but it needs coordination with changes in apl-api
   withWorkloadValues?: boolean
   excludeSecrets?: boolean
   envDir?: string
+  defaultValues?: boolean
 }
 export const hfValues = async (
-  { filesOnly = false, excludeSecrets = false, withWorkloadValues = false }: ValuesArgs = {},
+  { filesOnly = false, excludeSecrets = false, withWorkloadValues = false, defaultValues = false }: ValuesArgs = {},
   envDir: string = env.ENV_DIR,
 ): Promise<Record<string, any> | undefined> => {
   const d = terminal('common:hf:hfValues')
@@ -88,6 +91,12 @@ export const hfValues = async (
   if (filesOnly)
     output = await hf(
       { fileOpts: `${rootDir}/helmfile.tpl/helmfile-dump-files.yaml`, args: 'build' },
+      undefined,
+      envDir,
+    )
+  else if (defaultValues)
+    output = await hf(
+      { fileOpts: `${rootDir}/helmfile.tpl/helmfile-dump-defaults.yaml`, args: 'build' },
       undefined,
       envDir,
     )
@@ -105,19 +114,21 @@ export const hfValues = async (
   }
 
   if (withWorkloadValues) {
-    const tragetDir = `${envDir}/env/teams/workloads`
     const files = {}
-    if (await pathExists(tragetDir)) {
-      const paths = await readdirRecurse(tragetDir)
-      await Promise.allSettled(
-        paths.map(async (path) => {
-          const relativePath = path.replace(`${envDir}/`, '')
-          files[relativePath] = (await readFile(path)).toString()
-        }),
-      )
-      res.files = files
-    }
+    const filePaths = await glob([
+      `${envDir}/env/teams/workloads/**/*.yaml`,
+      `${envDir}/env/teams/*/sealedsecrets/*.yaml`,
+    ])
+
+    await Promise.allSettled(
+      filePaths.map(async (path) => {
+        const relativePath = path.replace(`${envDir}/`, '')
+        files[relativePath] = (await readFile(path)).toString()
+      }),
+    )
+    res.files = files
   }
+
   return res
 }
 

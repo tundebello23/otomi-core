@@ -1,3 +1,7 @@
+{{- $v := .Values }}
+{{- $a := $v.apps | get "alertmanager" }}
+{{- $g := $v.apps | get "grafana" }}
+
 kubeApiServer:
   enabled: false
 coreDns:
@@ -20,12 +24,12 @@ prometheusOperator:
   enabled: false
 
 defaultRules:
-  create: true
+  create: false
   rules:
     alertmanager: false
     configReloaders: false
     etcd: false
-    general: true
+    general: false
     k8s: false
     kubeApiserver: false
     kubeApiserverAvailability: false
@@ -49,53 +53,43 @@ defaultRules:
     prometheus: false
     prometheusOperator: false
 
-prometheus:
-  serviceMonitor:
-    selfMonitor: false
-  additionalServiceMonitors: null
-  prometheusSpec:
-    enableAdminAPI: false
-    replicas: 1
-    remoteWrite: null
-    resources:
-      limits:
-        cpu: 200m
-        memory: 512Mi
-      requests:
-        cpu: 100m
-        memory: 128Mi
 additionalPrometheusRules: null
 grafana:
   serviceMonitor:
     enabled: false
   defaultDashboardsEnabled: false
+  assertNoLeakedSecrets: false
   plugins: []
   resources:
-    limits:
-      cpu: 500m
-      memory: 256Mi
     requests:
-      cpu: 100m
+      cpu: 10m
       memory: 128Mi
-  sidecar:
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  sidecar: 
     resources:
       limits:
-        cpu: 100m
-        memory: 100Mi
+        cpu: 500m
+        memory: 256Mi
       requests:
-        cpu: 50m
-        memory: 50Mi
+        cpu: 10m
+        memory: 128Mi
 
 alertmanager:
   serviceMonitor:
     selfMonitor: false
   alertmanagerSpec:
-    alertmanagerConfigMatcherStrategy:
-      type: OnNamespace
     resources:
+      requests:
+        cpu: 10m
+        memory: 64Mi
       limits:
         cpu: 200m
-        memory: 128Mi
-      requests:
-        cpu: 100m
-        memory: 64Mi
+        memory: 256Mi
+
+prometheus:
+  thanosService:
+    enabled: false
+  thanosServiceMonitor:
+    enabled: false

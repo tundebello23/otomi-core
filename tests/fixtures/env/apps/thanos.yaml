@@ -1,17 +1,36 @@
 apps:
     thanos:
-        enabled: false
-        compactor:
-            retentionResolutionRaw: 0s
-            retentionResolution5m: 0s
-            retentionResolution1h: 0s
+        enabled: true
         query:
             replicaCount: 1
-        receiver:
-            mode: dual-mode
-            replicaCount: 2
-            tsdbRetention: 7d
-            replicationFactor: 1
-        objstore:
-            storageProvider:
-                type: minioLocal
+        compactor:
+            retentionResolutionRaw: 30d
+            retentionResolution5m: 30d
+            retentionResolution1h: 10y
+        persistence:
+            compactor:
+                size: 10Gi
+            storegateway:
+                size: 10Gi
+        resources:
+            query:
+                requests:
+                    cpu: 100m
+                    memory: 128Mi
+                limits:
+                    cpu: 900m
+                    memory: 512Mi
+            compactor:
+                requests:
+                    cpu: 100m
+                    memory: 128Mi
+                limits:
+                    cpu: 900m
+                    memory: 512Mi
+            storegateway:
+                requests:
+                    cpu: 100m
+                    memory: 128Mi
+                limits:
+                    cpu: 900m
+                    memory: 512Mi

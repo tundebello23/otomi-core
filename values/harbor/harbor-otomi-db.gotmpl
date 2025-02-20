@@ -1,77 +1,49 @@
 {{- $v := .Values }}
-{{- $h := $v.apps.harbor }}
+{{- $hdb := $v.databases.harbor }}
 {{- $cnpg := $v.apps.cnpg }}
-{{- $sp := $cnpg.storage }}
+{{- $obj := $v.obj.provider }}
 {{- $b := $v.platformBackups.database.harbor }}
 
-name: {{ $h.database.name }}
+name: harbor-otomi-db
 storage:
-  size: {{ $h.database.size }}
+  size: {{ $hdb.size }}
+instances: {{ $hdb.replicas }}
 
+{{- with $hdb.imageName }}
+imageName: {{ . }}
+{{- end }}
+
+postgresql:
+  parameters:
+    max_connections: "32"
+    shared_buffers: 64MB
+    work_mem: 2MB
+
+{{- if eq $obj.type "minioLocal" "linode" }}
 {{- if $b.enabled }}
 backup:
   enabled: {{ $b.enabled }}
-  schedule: {{ $b.schedule }}
+  schedule: {{ $b.schedule | quote }}
   retentionPolicy: {{ $b.retentionPolicy }}
-  type:  {{ $sp.type }}
-{{- if eq $sp.type "azure" }}
-  azure:
-    storageAccount: {{ $sp.azure.accountName }}
-    container: {{ $sp.azure.containerName }}
+  type:  {{ $obj.type }}
+{{- if eq $obj.type "minioLocal" }}
+  minioLocal:
+    destinationPath: "s3://cnpg/harbor"
 {{- end }}
-{{- if eq $sp.type "s3" }}
-  s3:
-    endpointURL: {{ $sp.s3.s3Url }}
-    bucket: {{ $sp.s3.bucket }}
+{{- if eq $obj.type "linode" }}
+  linode:
+    destinationPath: "s3://{{ $obj.linode.buckets.cnpg }}/harbor"
+    endpointURL: https://{{ $obj.linode.region }}.linodeobjects.com
 {{- end }}
-{{- if eq $sp.type "gcs" }}
-  gcs: 
-    bucket: {{ $sp.gcs.bucket }}
 {{- end }}
 {{- end }}
 
-
-{{- if $h.database.importHarborDb }}
 clusterSpec:
   bootstrap:
     initdb:
-      database: {{ $h.database.coreDatabase }}
-      owner: {{ $h.database.user }}
-      import:
-        type: microservice
-        databases:
-          - {{ $h.database.coreDatabase }}
-        source:
-          externalCluster: harbor-database
-  externalClusters:
-  - name: harbor-database
-    connectionParameters:
-      host: harbor-database.harbor.svc.cluster.local
-      user: postgres
-      dbname: {{ $h.database.coreDatabase }}
-      sslmode: disable
-    password:
-      name: harbor-database
-      key: POSTGRES_PASSWORD
-{{- else }}
-clusterSpec:  
-  bootstrap:
-    initdb:
-      database: {{ $h.database.coreDatabase }}
-      owner: {{ $h.database.user }}
+      database: {{ $hdb.coreDatabase }}
+      owner: harbor
       localeCollate: 'en_US.UTF-8'
       localeCType: 'en_US.UTF-8'
-{{- end }}
 
-
-resources:
-  {{- with $h | get "resources.database" nil }}
-  {{- toYaml . | nindent 6 }}
-  {{- else }}
-  limits:
-    cpu: 100m
-    memory: 512Mi
-  requests:
-    cpu: 50m
-    memory: 256Mi
-  {{- end }}
+resources: {{- toYaml $hdb.resources | nindent 2 }}

@@ -6,7 +6,7 @@ import { getFilename } from 'src/common/utils'
 import { BasicArguments, HelmArguments, getParsedArgs, helmOptions, setParsedArgs } from 'src/common/yargs'
 import { ProcessOutputTrimmed, stream } from 'src/common/zx-enhance'
 import { Argv } from 'yargs'
-import { $, nothrow } from 'zx'
+import { $ } from 'zx'
 
 const cmdName = getFilename(__filename)
 const templateFile = '/tmp/otomi/destroy-template.yaml'
@@ -29,11 +29,9 @@ const destroyAll = async () => {
   const d = terminal(`cmd:${cmdName}:destroyAll`)
   d.log('Uninstalling otomi...')
   const debugStream = { stdout: d.stream.debug, stderr: d.stream.error }
-  d.info('Removing problematic part: olm deployments...')
-  await stream(nothrow($`kubectl -n olm delete deploy --all`), debugStream)
   d.info('Removing problematic part: kiali finalizer...')
   await stream(
-    nothrow($`kubectl -n kiali patch kiali kiali -p '{"metadata":{"finalizers": []}}' --type=merge`),
+    $`kubectl -n kiali patch kiali kiali -p '{"metadata":{"finalizers": []}}' --type=merge`.nothrow().quiet(),
     debugStream,
   )
   d.info('Uninstalling all charts...')
@@ -49,7 +47,7 @@ const destroyAll = async () => {
   }
 
   d.info('Uninstalling webhook mutatingwebhookconfiguration ...')
-  await stream(nothrow($`kubectl delete mutatingwebhookconfiguration istio-sidecar-injector`), debugStream)
+  await stream($`kubectl delete mutatingwebhookconfiguration istio-sidecar-injector`.nothrow().quiet(), debugStream)
 
   d.info('Uninstalling webhook validatingwebhookconfiguration ...')
 
@@ -69,7 +67,7 @@ const destroyAll = async () => {
   await Promise.allSettled(
     validationAdmissionControllers.map(async (val) =>
       stream(
-        nothrow($`kubectl delete validatingwebhookconfiguration.admissionregistration.k8s.io ${val}`),
+        $`kubectl delete validatingwebhookconfiguration.admissionregistration.k8s.io ${val}`.nothrow().quiet(),
         debugStream,
       ),
     ),
@@ -87,13 +85,16 @@ const destroyAll = async () => {
 
   await Promise.allSettled(
     mutatingAdminionControllers.map(async (val) =>
-      stream(nothrow($`kubectl delete mutatingwebhookconfigurations.admissionregistration.k8s.io ${val}`), debugStream),
+      stream(
+        $`kubectl delete mutatingwebhookconfigurations.admissionregistration.k8s.io ${val}`.nothrow().quiet(),
+        debugStream,
+      ),
     ),
   )
 
   const templateOutput: string = output.stdout
   writeFileSync(templateFile, templateOutput)
-  await stream(nothrow($`kubectl delete -f ${templateFile}`), debugStream)
+  await stream($`kubectl delete -f ${templateFile}`.nothrow().quiet(), debugStream)
   d.info('Uninstalled all manifests.')
   if (!argv.full) return
   d.info('Uninstalling CRDs...')
@@ -102,14 +103,11 @@ const destroyAll = async () => {
     'appgw.ingress.k8s.io',
     'cert-manager.io',
     'externalsecrets.kubernetes-client.io',
-    'gatekeeper.sh',
     'istio.io',
     'jaegers.jaegertracing.io',
     'kiali.io',
     'knative.dev',
     'monitoring.coreos.com',
-    'operators.coreos.com',
-    'vault.banzaicloud.com',
   ]
   const kubeCRDString: string = (await $`kubectl get crd`).stdout.trim()
   const kubeCRDS: string[] = kubeCRDString.split('\n')
@@ -123,13 +121,9 @@ const destroyAll = async () => {
     .map((val) => val.split(' ')[0])
     .filter(Boolean)
   d.info('Our CRDs will be removed: ', allOurCRDS)
-  await Promise.allSettled(allOurCRDS.map(async (val) => stream(nothrow($`kubectl delete crd ${val}`), debugStream)))
-  d.info('Removing problematic api service: v1.packages.operators.coreos.com...')
-  await stream(
-    nothrow($`kubectl delete apiservices.apiregistration.k8s.io v1.packages.operators.coreos.com`),
-    debugStream,
+  await Promise.allSettled(
+    allOurCRDS.map(async (val) => stream($`kubectl delete crd ${val}`.nothrow().quiet(), debugStream)),
   )
-
   d.log('Uninstalled otomi!')
 }
 

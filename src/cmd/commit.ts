@@ -1,10 +1,12 @@
+import { CoreV1Api } from '@kubernetes/client-node'
+import retry from 'async-retry'
 import { bootstrapGit, setIdentity } from 'src/common/bootstrap'
 import { prepareEnvironment } from 'src/common/cli'
 import { encrypt } from 'src/common/crypt'
 import { terminal } from 'src/common/debug'
 import { env, isCi } from 'src/common/envalid'
 import { hfValues } from 'src/common/hf'
-import { waitTillGitRepoAvailable } from 'src/common/k8s'
+import { createGenericSecret, k8s, waitTillGitRepoAvailable } from 'src/common/k8s'
 import { getFilename } from 'src/common/utils'
 import { getRepo } from 'src/common/values'
 import { HelmArguments, getParsedArgs, setParsedArgs } from 'src/common/yargs'
@@ -48,20 +50,39 @@ const commitAndPush = async (values: Record<string, any>, branch: string): Promi
     return
   }
   if (values._derived?.untrustedCA) process.env.GIT_SSL_NO_VERIFY = '1'
-  d.log('git config:')
-  await $`cat .git/config`
-  await $`git push -u origin ${branch}`
+  await retry(
+    async () => {
+      try {
+        cd(env.ENV_DIR)
+        await $`git push -u origin ${branch}`
+      } catch (e) {
+        d.warn(`The values repository is not yet reachable.`)
+        throw new Error('Could not commit and push. Retrying...')
+      }
+    },
+    {
+      retries: 20,
+      maxTimeout: 30000,
+    },
+  )
   d.log('Successfully pushed the updated values')
 }
 
-export const commit = async (): Promise<void> => {
+export const commit = async (initialInstall: boolean): Promise<void> => {
   const d = terminal(`cmd:${cmdName}:commit`)
   await validateValues()
   d.info('Preparing values')
   const values = (await hfValues()) as Record<string, any>
-  // we call this here again, as we might not have completed (happens upon first install):
-  await bootstrapGit(values)
-  const { branch, remote } = getRepo(values)
+  const { branch, remote, username, email } = getRepo(values)
+  if (initialInstall) {
+    // we call this here again, as we might not have completed (happens upon first install):
+    await bootstrapGit(values)
+  } else {
+    cd(env.ENV_DIR)
+    await setIdentity(username, email)
+    // the url might need updating (e.g. if credentials changed)
+    await $`git remote set-url origin ${remote}`
+  }
   // lets wait until the remote is ready
   if (values?.apps!.gitea!.enabled ?? true) {
     await waitTillGitRepoAvailable(remote)
@@ -72,14 +93,21 @@ export const commit = async (): Promise<void> => {
 }
 
 export const cloneOtomiChartsInGitea = async (): Promise<void> => {
-  const d = terminal(`cmd:${cmdName}:gitea-otomi-charts`)
-  d.info('Cloning otomi-charts in Gitea')
+  const d = terminal(`cmd:${cmdName}:gitea-apl-charts`)
+  d.info('Checking if apl-charts already exists in Gitea')
   const values = (await hfValues()) as Record<string, any>
   const { email, username, password } = getRepo(values)
-  const workDir = '/tmp/otomi-charts'
+  const workDir = '/tmp/apl-charts'
   const otomiChartsUrl = env.OTOMI_CHARTS_URL
   const giteaChartsUrl = `http://${username}:${password}@gitea-http.gitea.svc.cluster.local:3000/otomi/charts.git`
   try {
+    // Check if remote repository exists by verifying if output from git ls-remote is not empty
+    const repoExists = await $`git ls-remote ${giteaChartsUrl}`
+    if (repoExists.stdout.trim()) {
+      d.info('apl-charts repository already exists in Gitea. Skipping clone and initialization steps.')
+      return
+    }
+    d.info('Cloning apl-charts in Gitea')
     await $`mkdir ${workDir}`
     await $`git clone --depth 1 ${otomiChartsUrl} ${workDir}`
     cd(workDir)
@@ -91,7 +119,7 @@ export const cloneOtomiChartsInGitea = async (): Promise<void> => {
     await $`rm -f .gitignore`
     await $`rm -f LICENSE`
     await $`git init`
-    await setIdentity(username, password, email)
+    await setIdentity(username, email)
     await $`git checkout -b main`
     await $`git add .`
     await $`git commit -m "first commit"`
@@ -101,20 +129,100 @@ export const cloneOtomiChartsInGitea = async (): Promise<void> => {
   } catch (error) {
     d.info('CloneOtomiChartsInGitea Error:', error)
   }
-  d.info('Cloned otomi-charts in Gitea')
+  d.info('Cloned apl-charts in Gitea')
+}
+
+export async function retryCheckingForPipelineRun() {
+  const d = terminal(`cmd:${cmdName}:pipelineRun`)
+  await retry(
+    async () => {
+      await checkIfPipelineRunExists()
+    },
+    { retries: env.RETRIES, randomize: env.RANDOM, minTimeout: env.MIN_TIMEOUT, factor: env.FACTOR },
+  ).catch((e) => {
+    d.error('Error retrieving PipelineRuns:', e)
+    throw e
+  })
+}
+
+export async function retryIsOAuth2ProxyRunning() {
+  const d = terminal(`cmd:${cmdName}:isOAuth2ProxyRunning`)
+  await retry(
+    async () => {
+      await isOAuth2ProxyAvailable(k8s.core())
+    },
+    { retries: env.RETRIES, randomize: env.RANDOM, minTimeout: env.MIN_TIMEOUT, factor: env.FACTOR },
+  ).catch((e) => {
+    d.error('Error checking if OAuth2Proxy is ready:', e)
+    throw e
+  })
+}
+
+export async function isOAuth2ProxyAvailable(coreV1Api: CoreV1Api): Promise<void> {
+  const d = terminal(`cmd:${cmdName}:isOAuth2ProxyRunning`)
+  d.info('Checking if OAuth2Proxy is available, waiting...')
+  const { body: oauth2ProxyEndpoint } = await coreV1Api.readNamespacedEndpoints('oauth2-proxy', 'istio-system')
+  if (!oauth2ProxyEndpoint) {
+    throw new Error('OAuth2Proxy endpoint not found, waiting...')
+  }
+  const oauth2ProxySubsets = oauth2ProxyEndpoint.subsets
+  if (!oauth2ProxySubsets || oauth2ProxySubsets.length < 1) {
+    throw new Error('OAuth2Proxy has no subsets, waiting...')
+  }
+  const oauth2ProxyAddresses = oauth2ProxySubsets[0].addresses
+
+  if (!oauth2ProxyAddresses || oauth2ProxyAddresses.length < 1) {
+    throw new Error('OAuth2Proxy has no available addresses, waiting...')
+  }
+  d.info('OAuth2proxy is available, continuing...')
+}
+
+export async function checkIfPipelineRunExists(): Promise<void> {
+  const d = terminal(`cmd:${cmdName}:pipelineRun`)
+
+  const response = await k8s
+    .custom()
+    .listNamespacedCustomObject('tekton.dev', 'v1beta1', 'otomi-pipelines', 'pipelineruns')
+
+  const pipelineRuns = (response.body as { items: any[] }).items
+  if (pipelineRuns.length === 0) {
+    d.info(`No Tekton pipeline runs found, triggering a new one...`)
+    await $`git commit --allow-empty -m "[apl-trigger]"`
+    await $`git push`
+    throw new Error('PipelineRun not found in otomi-pipelines namespace')
+  }
+  d.info(`There is a Tekton PipelineRuns continuing...`)
+}
+
+async function createCredentialsSecret(secretName: string, username: string, password: string): Promise<void> {
+  const secretData = { username, password }
+  await createGenericSecret(k8s.core(), secretName, 'keycloak', secretData)
 }
 
 export const printWelcomeMessage = async (): Promise<void> => {
   const d = terminal(`cmd:${cmdName}:commit`)
   const values = (await hfValues()) as Record<string, any>
-  const credentials = values.apps.keycloak
+  const { adminUsername, adminPassword }: { adminUsername: string; adminPassword: string } = values.apps.keycloak
+  await createCredentialsSecret('root-credentials', adminUsername, adminPassword)
+  const { hasExternalIDP } = values.otomi
+  const { domainSuffix } = values.cluster
+  const defaultPlatformAdminEmail = `platform-admin@${domainSuffix}`
+  const platformAdmin = values.users.find((user: any) => user.email === defaultPlatformAdminEmail)
+  if (platformAdmin && !hasExternalIDP) {
+    const { email, initialPassword }: { email: string; initialPassword: string } = platformAdmin
+    await createCredentialsSecret('platform-admin-initial-credentials', email, initialPassword)
+  }
+  const secretName = hasExternalIDP ? 'root-credentials' : 'platform-admin-initial-credentials'
   const message = `
-    ########################################################################################################################################
-    #
-    #  To start using Otomi, go to https://otomi.${values.cluster.domainSuffix} and sign in to the web console
-    #  with username "${credentials.adminUsername}" and password "${credentials.adminPassword}".
-    #
-    ########################################################################################################################################`
+  ########################################################################################################################################
+  #
+  #  The App Platform console is available at https://console.${domainSuffix}
+  #
+  #  Obtain login credentials by using the below commands:
+  #      kubectl get secret ${secretName} -n keycloak -o jsonpath='{.data.username}' | base64 -d
+  #      kubectl get secret ${secretName} -n keycloak -o jsonpath='{.data.password}' | base64 -d
+  #
+  ########################################################################################################################################`
   d.info(message)
 }
 
@@ -133,6 +241,6 @@ export const module = {
   handler: async (argv: Arguments): Promise<void> => {
     setParsedArgs(argv)
     await prepareEnvironment({ skipKubeContextCheck: true })
-    await commit()
+    await commit(true)
   },
 }

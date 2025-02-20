@@ -13,6 +13,7 @@ import { hfValues } from 'src/common/hf'
 import { getFilename, gucci, loadYaml, rootDir } from 'src/common/utils'
 import { writeValues, writeValuesToFile } from 'src/common/values'
 import { BasicArguments, getParsedArgs, setParsedArgs } from 'src/common/yargs'
+import { v4 as uuidv4 } from 'uuid'
 import { Argv } from 'yargs'
 import { cd } from 'zx'
 
@@ -27,6 +28,7 @@ interface Change {
   clones?: Array<{
     [targetPath: string]: string
   }>
+  fileDeletions?: Array<string>
   deletions?: Array<string>
   relocations?: Array<{
     [oldLocation: string]: string
@@ -41,9 +43,29 @@ interface Change {
     [mutation: string]: string
   }>
   fileAdditions?: Array<string>
+  bulkAdditions?: Array<{
+    [mutation: string]: string
+  }>
+  networkPoliciesMigration?: boolean
 }
 
 export type Changes = Array<Change>
+
+export const deleteFile = async (
+  relativeFilePath: string,
+  dryRun = false,
+  deps = { pathExists, renameSync, terminal, copy, rm },
+): Promise<void> => {
+  const d = deps.terminal(`cmd:${cmdName}:rename`)
+  const path = `${env.ENV_DIR}/${relativeFilePath}`
+  if (!(await deps.pathExists(path))) {
+    d.warn(`File does not exist: "${path}". Already removed?`)
+    return
+  }
+  if (!dryRun) {
+    await deps.rm(path)
+  }
+}
 
 export const rename = async (
   oldName: string,
@@ -183,6 +205,103 @@ export const setDeep = async (obj: Record<string, any>, path: string, tmplStr: s
   )
 }
 
+const transformIngressPolicy = (service: any, networkPolicy: any, netpols: any[]) => {
+  if (!networkPolicy.ingressPrivate) return
+  const ingress = {
+    ...networkPolicy.ingressPrivate,
+    toLabelName: 'otomi.io/app',
+    toLabelValue: service.name,
+  }
+  if (ingress?.allow?.length > 0) {
+    ingress.allow = ingress.allow.map((a: any) => transformAllow(a))
+  }
+  netpols.push({
+    id: uuidv4(),
+    ...(service.name && { name: service.name }),
+    ruleType: {
+      type: 'ingress',
+      ingress,
+    },
+  })
+}
+
+const transformAllow = (a: any) => {
+  const allow = { ...a }
+  if (allow.team) {
+    allow.fromNamespace = `team-${allow.team}`
+    unset(allow, 'team')
+  }
+  if (allow.service) {
+    allow.fromLabelName = 'otomi.io/app'
+    allow.fromLabelValue = allow.service
+    unset(allow, 'service')
+  }
+  return allow
+}
+
+const transformEgressPolicy = (service: any, netpols: any[]) => {
+  if (!service.networkPolicy.egressPublic) return
+  const egress = [...service.networkPolicy.egressPublic]
+  egress.forEach((e: any) => {
+    netpols.push({
+      id: uuidv4(),
+      ...(e.domain && { name: e.domain.replaceAll('.', '-').replaceAll(':', '-') }),
+      ruleType: {
+        type: 'egress',
+        egress: e,
+      },
+    })
+  })
+}
+
+const networkPoliciesMigration = async (values: Record<string, any>): Promise<void> => {
+  const teams: Array<string> = Object.keys(values?.teamConfig as Record<string, any>)
+  await Promise.all(
+    teams.map(async (teamName) => {
+      const servicePermissions = get(values, `teamConfig.${teamName}.selfService.service`, [])
+      if (servicePermissions.includes('networkPolicy'))
+        set(
+          values,
+          `teamConfig.${teamName}.selfService.service`,
+          servicePermissions.filter((s: any) => s !== 'networkPolicy'),
+        )
+
+      createFileSync(`${env.ENV_DIR}/env/teams/netpols.${teamName}.yaml`)
+      let services = get(values, `teamConfig.${teamName}.services`)
+      if (!services || services.length === 0) return
+      const valuesToWrite = {
+        teamConfig: {},
+      }
+      const netpols: any = []
+
+      services
+        .filter((s) => s?.networkPolicy && s?.networkPolicy?.ingressPrivate?.mode !== 'DenyAll')
+        .forEach((service: any) => {
+          const { networkPolicy } = service
+          transformIngressPolicy(service, networkPolicy, netpols)
+          transformEgressPolicy(service, netpols)
+        })
+
+      valuesToWrite.teamConfig[teamName] = { netpols }
+      await writeValuesToFile(`${env.ENV_DIR}/env/teams/netpols.${teamName}.yaml`, valuesToWrite, true)
+      set(values, `teamConfig.${teamName}.netpols`, netpols)
+      services = services.map((service: any) => {
+        if (service.networkPolicy) {
+          unset(service, 'networkPolicy')
+        }
+        return service
+      })
+      set(values, `teamConfig.${teamName}.services`, services)
+    }),
+  )
+}
+
+const bulkAddition = (path: string, values: any, filePath: string) => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const val = require(filePath)
+  setAtPath(path, values, val)
+}
+
 /**
  * Applies changes from configuration.
  *
@@ -213,6 +332,7 @@ export const applyChanges = async (
   for (const c of changes) {
     c.deletions?.forEach((entry) => unsetAtPath(entry, values))
     c.additions?.forEach((entry: any) => each(entry, (val, path) => setAtPath(path, values, val)))
+    c.bulkAdditions?.forEach((entry) => each(entry, (filePath, path) => bulkAddition(path, values, filePath)))
     c.relocations?.forEach((entry) => each(entry, (newName, oldName) => moveGivenJsonPath(values, oldName, newName)))
     if (c.mutations)
       // 'for const of' is used here to allow await in loop
@@ -229,6 +349,15 @@ export const applyChanges = async (
           await setDeep(values, path, tmplStr)
         }
       }
+    // Lastly we remove files
+    for (const change of changes) {
+      change.fileDeletions?.forEach((entry) => {
+        const paths = unparsePaths(entry, values)
+        paths.forEach((path) => deleteFile(path))
+      })
+    }
+
+    if (c.networkPoliciesMigration) await networkPoliciesMigration(values)
 
     Object.assign(values, { version: c.version })
   }
