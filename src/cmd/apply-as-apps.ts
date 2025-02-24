@@ -4,12 +4,13 @@ import { writeFile } from 'fs/promises'
 import { cleanupHandler, prepareEnvironment } from 'src/common/cli'
 import { logLevelString, terminal } from 'src/common/debug'
 import { hf } from 'src/common/hf'
-import { isResourcePresent } from 'src/common/k8s'
+import { patchContainerResourcesOfSts, isResourcePresent, k8s } from 'src/common/k8s'
 import { getFilename, loadYaml } from 'src/common/utils'
 import { getImageTag, objectToYaml } from 'src/common/values'
 import { HelmArguments, getParsedArgs, helmOptions, setParsedArgs } from 'src/common/yargs'
 import { Argv, CommandModule } from 'yargs'
 import { $ } from 'zx'
+import { V1ResourceRequirements } from '@kubernetes/client-node/dist/gen/model/v1ResourceRequirements'
 
 const cmdName = getFilename(__filename)
 const dir = '/tmp/otomi'
@@ -29,7 +30,7 @@ const setup = (): void => {
   mkdirSync(valuesDir, { recursive: true })
 }
 
-interface HelmRelese {
+interface HelmRelease {
   name: string
   namespace: string
   enabled: boolean
@@ -38,11 +39,11 @@ interface HelmRelese {
   chart: string
   version: string
 }
-const getAppName = (release: HelmRelese): string => {
+const getAppName = (release: HelmRelease): string => {
   return `${release.namespace}-${release.name}`
 }
 
-const getArgocdAppManifest = (release: HelmRelese, values: Record<string, any>, otomiVersion) => {
+const getArgocdAppManifest = (release: HelmRelease, values: Record<string, any>, otomiVersion) => {
   return {
     apiVersion: 'argoproj.io/v1alpha1',
     kind: 'Application',
@@ -52,6 +53,9 @@ const getArgocdAppManifest = (release: HelmRelese, values: Record<string, any>, 
         'otomi.io/app': 'managed',
       },
       namespace: 'argocd',
+      annotations: {
+        'argocd.argoproj.io/compare-options': 'ServerSideDiff=true,IncludeMutationWebhook=true',
+      },
     },
     spec: {
       syncPolicy: {
@@ -65,7 +69,7 @@ const getArgocdAppManifest = (release: HelmRelese, values: Record<string, any>, 
       project: 'default',
       source: {
         path: release.chart.replace('../', ''),
-        repoURL: 'https://github.com/redkubes/otomi-core.git',
+        repoURL: 'https://github.com/linode/apl-core.git',
         targetRevision: otomiVersion,
         helm: {
           releaseName: release.name,
@@ -80,27 +84,77 @@ const getArgocdAppManifest = (release: HelmRelese, values: Record<string, any>, 
   }
 }
 
-const removeApplication = async (release: HelmRelese): Promise<void> => {
+const setFinalizers = async (name: string) => {
+  d.info(`Setting finalizers for ${name}`)
+  const resPatch =
+    await $`kubectl -n argocd patch application ${name} -p '{"metadata": {"finalizers": ["resources-finalizer.argocd.argoproj.io"]}}' --type merge`
+  if (resPatch.exitCode !== 0) {
+    throw new Error(`Failed to set finalizers for ${name}: ${resPatch.stderr}`)
+  }
+}
+
+const getFinalizers = async (name: string): Promise<string[]> => {
+  const res = await $`kubectl -n argocd get application ${name} -o jsonpath='{.metadata.finalizers}'`
+  return res.stdout ? JSON.parse(res.stdout) : []
+}
+
+const removeApplication = async (release: HelmRelease): Promise<void> => {
   const name = getAppName(release)
   if (!(await isResourcePresent('application', name, 'argocd'))) return
 
-  // TODO: do we always want to remove finalisers?
-  await $`kubectl -n argocd patch application ${name}  -p '{"metadata": {"finalizers": null}}' --type merge`
-  const resDelete = await $`kubectl -n argocd delete application ${name}`
-  d.info(resDelete.stdout.toString())
+  try {
+    const finalizers = await getFinalizers(name)
+    if (!finalizers.includes('resources-finalizer.argocd.argoproj.io')) {
+      await setFinalizers(name)
+    }
+    const resDelete = await $`kubectl -n argocd delete application ${name}`
+    d.info(resDelete.stdout.toString().trim())
+  } catch (e) {
+    d.error(`Failed to delete application ${name}: ${e.message}`)
+  }
 }
 
-const writeApplicationManifest = async (release: HelmRelese, otomiVersion: string): Promise<void> => {
+function getResources(values: Record<string, any>) {
+  const config = values
+  const resources: V1ResourceRequirements = {
+    limits: {
+      cpu: config.controller?.resources?.limits?.cpu,
+      memory: config.controller?.resources?.limits?.memory,
+    },
+    requests: {
+      cpu: config.controller?.resources?.requests?.cpu,
+      memory: config.controller?.resources?.requests?.memory,
+    },
+  }
+  return resources
+}
+
+async function patchArgocdResources(release: HelmRelease, values: Record<string, any>) {
+  if (release.name === 'argocd') {
+    const resources = getResources(values)
+    await patchContainerResourcesOfSts(
+      'argocd-application-controller',
+      'argocd',
+      'application-controller',
+      resources,
+      k8s.app(),
+      k8s.core(),
+      d,
+    )
+  }
+}
+
+const writeApplicationManifest = async (release: HelmRelease, otomiVersion: string): Promise<void> => {
   const appName = `${release.namespace}-${release.name}`
-  // d.info(`Generating Argocd Application at ${appName}`)
   const applicationPath = `${appsDir}/${appName}.yaml`
   const valuesPath = `${valuesDir}/${appName}.yaml`
-  // d.info(`Loading values file from ${valuesPath}`)
   let values = {}
+
   if (await pathExists(valuesPath)) values = (await loadYaml(valuesPath)) || {}
   const manifest = getArgocdAppManifest(release, values, otomiVersion)
-  // d.info(`Saving Argocd Application at ${applicationPath}`)
   await writeFile(applicationPath, objectToYaml(manifest))
+
+  await patchArgocdResources(release, values)
 }
 export const applyAsApps = async (argv: HelmArguments): Promise<void> => {
   const helmfileSource = argv.file?.toString() || 'helmfile.d/'
@@ -125,9 +179,9 @@ export const applyAsApps = async (argv: HelmArguments): Promise<void> => {
   })
   const errors: Array<any> = []
   // Generate JSON object with all helmfile releases defined in helmfile.d
-  const releses: [] = JSON.parse(res.stdout.toString())
+  const releases: [] = JSON.parse(res.stdout.toString())
   await Promise.allSettled(
-    releses.map(async (release: HelmRelese) => {
+    releases.map(async (release: HelmRelease) => {
       try {
         if (release.installed) await writeApplicationManifest(release, otomiVersion)
         else {
@@ -147,10 +201,10 @@ export const applyAsApps = async (argv: HelmArguments): Promise<void> => {
     d.error(e)
     errors.push(e)
   }
-  if (errors.length === 0) d.info(`All applications has been deployed succesfully`)
+  if (errors.length === 0) d.info(`All applications has been deployed successfully`)
   else {
     errors.map((e) => d.error(e))
-    d.error(`Not all applications has been deployed succesfully`)
+    d.error(`Not all applications has been deployed successfully`)
   }
 }
 

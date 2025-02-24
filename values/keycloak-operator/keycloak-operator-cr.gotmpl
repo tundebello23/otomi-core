@@ -1,4 +1,3 @@
-{{- $pinnedConsoleVersion := "v1.4.0" }}
 {{- $v := .Values }}
 {{- $k := $v | get "apps.keycloak" }}
 
@@ -31,14 +30,11 @@ spec:
   ingress: 
     enabled: false
   hostname:
-    hostname: keycloak.{{ .Values.cluster.domainSuffix }}
+    hostname: keycloak.{{ $v.cluster.domainSuffix }}
     strict: false
     strictBackchannel: false
   unsupported:
     podTemplate:
-      metadata:
-        annotations: 
-          policy.otomi.io/ignore: psp-allowed-users,psp-privileged
       spec:
         priorityClassName: otomi-critical
         containers: #
@@ -51,7 +47,7 @@ spec:
           emptyDir: {}
         initContainers:
         - name: init-container-theme-copy # Otomi branding init container
-          image: docker.io/otomi/console:{{ $pinnedConsoleVersion }}
+          image: docker.io/linode/apl-console:{{ $v.versions.consoleLogin }}
           resources: {{ $k.resources.keycloak | toYaml  | nindent 12 }}
           command: 
           - sh 
@@ -59,7 +55,7 @@ spec:
           - -c
           - |
             echo "Copying theme..."
-            cp -Rv /app/otomi.jar /opt/keycloak/providers/
+            cp -Rv /app/APL.jar /opt/keycloak/providers/
           volumeMounts: 
             - name: theme-volume
               mountPath: /opt/keycloak/providers

@@ -12,9 +12,16 @@ apps:
         modsecurity:
             enabled: true
         resources:
-            limits:
-                cpu: 200m
-                memory: 256Mi
-            requests:
-                cpu: 100m
-                memory: 192Mi
+            controller:
+                limits:
+                    cpu: 200m
+                    memory: 256Mi
+                requests:
+                    cpu: 100m
+                    memory: 192Mi
+        autoscaling:
+            enabled: true
+            maxReplicas: 10
+            minReplicas: 1
+            targetCPUUtilizationPercentage: 80
+            targetMemoryUtilizationPercentage: 80

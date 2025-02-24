@@ -8,7 +8,7 @@ import { getOtomiLoadBalancerIP } from 'src/common/k8s'
 import { getFilename, rootDir } from 'src/common/utils'
 import { getRepo, writeValues } from 'src/common/values'
 import { getParsedArgs } from 'src/common/yargs'
-import { $, cd, nothrow } from 'zx'
+import { $, cd } from 'zx'
 
 const cmdName = getFilename(__filename)
 
@@ -30,10 +30,9 @@ export const prepareDomainSuffix = async (inValues: Record<string, any> | undefi
   }
 }
 
-export const setIdentity = async (username, password, email) => {
-  await nothrow($`git config --local user.name ${username}`)
-  await nothrow($`git config --local user.password ${password}`)
-  await nothrow($`git config --local user.email ${email}`)
+export const setIdentity = async (username, email) => {
+  await $`git config --local user.name ${username}`.nothrow().quiet()
+  await $`git config --local user.email ${email}`.nothrow().quiet()
 }
 /**
  * Prepare the ENV_DIR before anything else. Scenario's:
@@ -42,18 +41,20 @@ export const setIdentity = async (username, password, email) => {
  */
 export const bootstrapGit = async (inValues?: Record<string, any>): Promise<void> => {
   const d = terminal(`cmd:${cmdName}:bootstrapGit`)
+  // inValues indicates that there is no values repo file structure that helmfile expects
   const values = inValues ?? ((await hfValues()) as Record<string, any>)
   const argv = getParsedArgs()
+  // use case for nip.io when we are waiting for LoadBalancerIP address do derive the domainSuffix
   if (!values?.cluster?.domainSuffix && !argv.destroy) return // too early, commit will handle it
   if (!values?.cluster?.domainSuffix && argv.destroy) {
     // we couldn't find the domainSuffix in the values, so create it
     await prepareDomainSuffix(values)
   }
-  const { remote, branch, email, username, password } = getRepo(values)
+  const { remote, branch, email, username } = getRepo(values)
   cd(env.ENV_DIR)
   if (await pathExists(`${env.ENV_DIR}/.git`)) {
     d.info(`Git repo was already bootstrapped, setting identity just in case`)
-    await setIdentity(username, password, email)
+    await setIdentity(username, email)
     return
   }
   // we don't care about ssl verification as repo endpoint is either ours or user input
@@ -77,31 +78,41 @@ export const bootstrapGit = async (inValues?: Record<string, any>): Promise<void
     }
     // we know we have commits, so we replace ENV_DIR with the clone files and overwrite with new values
     // so first get the new values without secrets (as those exist already)
-    const newValues = (await hfValues({ filesOnly: true })) as Record<string, any>
     cd(env.ENV_DIR)
     // then sync the clone back to ENV_DIR
     const flags = '-rl' // recursive, preserve symlinks and groups (all we can do without superuser privs)
     await $`rsync ${flags} ${env.ENV_DIR}/ /tmp/xx/ && rm -rf .[!.]* * && rsync ${flags} --exclude="." /tmp/xx/ ${env.ENV_DIR}/`
     // decrypt the freshly cloned repo
     await decrypt()
-    // finally write back the new values without overwriting existing values
-    await writeValues(newValues)
   } catch (e) {
     d.debug(e)
     d.info('Remote does not exist yet. Expecting first commit to come later.')
+  } finally {
+    const defaultValues = (await hfValues({ defaultValues: true })) as Record<string, any>
+    // finally write back the new values without overwriting existing values
+    d.info('Write default values to env repo')
+    await writeValues(defaultValues)
   }
+
   if (!(await pathExists(`${env.ENV_DIR}/.git`))) {
     d.info('Initializing values git repo.')
     await $`git init .`
   }
-  if (isCli) await copyFile(`${rootDir}/bin/hooks/pre-commit`, `${env.ENV_DIR}/.git/hooks/pre-commit`)
-  else await nothrow($`git config --global --add safe.directory ${env.ENV_DIR}`)
-  await setIdentity(username, password, email)
-  if (!hasCommits) {
-    await nothrow($`git checkout -b ${branch}`)
-    await nothrow($`git remote add origin ${remote}`)
+
+  if (isCli) {
+    await copyFile(`${rootDir}/bin/hooks/pre-commit`, `${env.ENV_DIR}/.git/hooks/pre-commit`)
+  } else {
+    await $`git config --global --add safe.directory ${env.ENV_DIR}`.nothrow().quiet()
   }
-  if (await pathExists(`${env.ENV_DIR}/.sops.yaml`))
-    await nothrow($`git config --local diff.sopsdiffer.textconv "sops -d"`)
+
+  await setIdentity(username, email)
+
+  if (!hasCommits) {
+    await $`git checkout -b ${branch}`.nothrow().quiet()
+    await $`git remote add origin ${remote}`.nothrow().quiet()
+  }
+  if (await pathExists(`${env.ENV_DIR}/.sops.yaml`)) {
+    await $`git config --local diff.sopsdiffer.textconv "sops -d"`.nothrow().quiet()
+  }
   d.log(`Done bootstrapping git`)
 }
