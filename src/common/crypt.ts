@@ -15,8 +15,8 @@ export interface Arguments extends BasicArguments {
 EventEmitter.defaultMaxListeners = 20
 
 enum CryptType {
-  ENCRYPT = 'helm secrets enc',
-  DECRYPT = 'helm secrets dec',
+  ENCRYPT = 'helm secrets -q encrypt -i',
+  DECRYPT = 'helm secrets decrypt',
   ROTATE = 'sops --input-type=yaml --output-type=yaml -i -r',
 }
 
@@ -60,11 +60,28 @@ const processFileChunk = async (crypt: CR, files: string[]): Promise<(ProcessOut
   const commands = files.map(async (file) => {
     if (!crypt.condition || (await crypt.condition(file))) {
       d.debug(`${crypt.cmd} ${file}`)
-      const result = $`${crypt.cmd.split(' ')} ${file}`
-      return result.then(async (res) => {
-        if (crypt.post) await crypt.post(file)
-        return res
-      })
+      try {
+        d.info(`${crypt.cmd} ${file}`)
+        const result = await $`${[...crypt.cmd.split(' '), file]}`.quiet()
+
+        if (crypt.cmd === CryptType.DECRYPT) {
+          const outputFile = `${file}.dec`
+          await writeFile(outputFile, result.stdout)
+        }
+
+        if (crypt.post) {
+          await crypt.post(file)
+        }
+
+        return result
+      } catch (error) {
+        if (error.message.includes('Already encrypted') && (await pathExists(`${file}.dec`))) {
+          const res = await $`helm secrets encrypt ${file}.dec`
+          await writeFile(file, res.stdout)
+          if (crypt.post) await crypt.post(file)
+          return res
+        }
+      }
     }
     return undefined
   })
@@ -172,8 +189,8 @@ export const encrypt = async (path = env.ENV_DIR, ...files: string[]): Promise<v
 
         const encTS = await stat(absFilePath)
         const decTS = await stat(`${absFilePath}.dec`)
-        d.debug('encTS.mtime: ', encTS.mtime)
-        d.debug('decTS.mtime: ', decTS.mtime)
+        d.debug(`${file} encTS.mtime: `, encTS.mtime)
+        d.debug(`${file} decTS.mtime: `, decTS.mtime)
         const timeDiff = Math.round((decTS.mtimeMs - encTS.mtimeMs) / 1000)
         if (timeDiff > 1) {
           d.info(`Encrypting ${file}, time difference was ${timeDiff} seconds`)

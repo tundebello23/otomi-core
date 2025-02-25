@@ -18,16 +18,10 @@ eventListener:
       memory: '128Mi'
       cpu: '500m'
 
-tektonTask:
-  resources:
-    # Tekton Task pod resouce limits and requests
-    requests:
-      cpu: '500m'
-    limits:
-      cpu: '2'
-
 kms: {}
 
 giteaPassword: ""
 
 cloneUnsecure: false
+
+otomiVersion: 0.1.0

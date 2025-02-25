@@ -14,10 +14,17 @@ bases:
 {{- $k := $a.keycloak }}
 
 releases:
-  - name: cluster-autoscaler
-    installed: {{ $a | get "cluster-autoscaler.enabled" }}
-    namespace: kube-system
-    <<: *default
+  - name: knative-serving-artifacts
+    installed: {{ $a | get "knative.enabled" }}
+    namespace: knative-serving
+    disableValidationOnInstall: true
+    chart: ../charts/raw
+    labels:
+      init: true
+      pkg: knative
+    values:
+      - ../values/knative-serving/knative-serving-raw.gotmpl
+    <<: *upgrade
   - name: knative-serving
     installed: {{ $a | get "knative.enabled" }}
     namespace: knative-serving
@@ -25,18 +32,7 @@ releases:
     labels:
       pkg: knative
     values:
-      - ../values/knative/knative-serving-cr.gotmpl
-      - {{- $v.apps.knative | get "_rawValues" dict | toYaml | nindent 8 }}
-    <<: *upgrade
-  - name: oauth2-proxy-redis
-    installed: false
-    namespace: istio-system
-    chart: ../charts/redis
-    labels:
-      pkg: oauth2-proxy
-    values:
-      - ../values/oauth2-proxy/oauth2-proxy-redis.gotmpl
-      - snippets/common.gotmpl
+      - ../values/knative-serving/knative-serving-cr.gotmpl
     <<: *upgrade
   - name: minio
     installed: {{ $a.minio.enabled }}
@@ -55,8 +51,11 @@ releases:
     namespace: tekton-pipelines
     labels:
       pkg: tekton-triggers
+      app: core
     <<: *default
   - name: otomi-pipelines
     installed: true
     namespace: otomi-pipelines
+    labels:
+      app: core
     <<: *default

@@ -2,10 +2,42 @@
 {{- $k := $v.apps.keycloak }}
 {{- $cnpg := $v.apps.cnpg }}
 {{- $kdb := $v.databases.keycloak }}
+{{- $obj := $v.obj.provider }}
+{{- $b := $v.platformBackups.database.keycloak }}
 
 name: keycloak-db
 storage:
   size: {{ $kdb.size }}
+instances: {{ $kdb.replicas }}
+
+{{- with $kdb.imageName }}
+imageName: {{ . }}
+{{- end }}
+
+postgresql:
+  parameters:
+    max_connections: "32"
+    shared_buffers: 64MB
+    work_mem: 2MB
+
+{{- if eq $obj.type "minioLocal" "linode" }}
+{{- if $b.enabled }}
+backup:
+  enabled: {{ $b.enabled }}
+  schedule: {{ $b.schedule | quote }}
+  retentionPolicy: {{ $b.retentionPolicy }}
+  type:  {{ $obj.type }}
+{{- if eq $obj.type "minioLocal" }}
+  minioLocal:
+    destinationPath: "s3://cnpg/keycloak"
+{{- end }}
+{{- if eq $obj.type "linode" }}
+  linode:
+    destinationPath: "s3://{{ $obj.linode.buckets.cnpg }}/keycloak"
+    endpointURL: https://{{ $obj.linode.region }}.linodeobjects.com
+{{- end }}
+{{- end }}
+{{- end }}
 
 {{- if $kdb.imported }}
 clusterSpec:
@@ -40,6 +72,4 @@ clusterSpec:
       localeCType: 'en_US.UTF-8'
 {{- end }}
 
-instances: {{ $kdb.replicas }}
-
-resources: {{- toYaml $kdb.resources | nindent 6 }}
+resources: {{- toYaml $kdb.resources | nindent 2 }}

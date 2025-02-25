@@ -61,13 +61,15 @@ spec:
       workspace: docker-credentials
     params:
     - name: APP_IMAGE
-      value: harbor.{{ $v.cluster.domainSuffix }}/team-{{ $v.teamId }}/{{ .name }}:{{ .tag }}
+      value: {{ $v.harborDomain }}/team-{{ $v.teamId }}/{{ .name }}:{{ .tag }}
     {{- with .mode.buildpacks.path }}
     - name: SOURCE_SUBPATH
       value: {{ . }}
     {{- end }}
     - name: BUILDER_IMAGE
-      value: paketobuildpacks/builder:full
+      value: paketobuildpacks/builder-jammy-full:latest
+    - name: USER_ID
+      value: "1001"
       {{- with (dig "mode" "buildpacks" "envVars" nil . ) }}
     - name: ENV_VARS
       value: 
@@ -93,6 +95,7 @@ spec:
           {{- include "team-ns.chart-labels" $ | nindent 10 }}
         annotations:
           sidecar.istio.io/inject: "false"
+          argocd.argoproj.io/compare-options: IgnoreExtraneous
       spec:
         pipelineRef:
           name: buildpacks-build-{{ .name }}
@@ -131,6 +134,7 @@ metadata:
   name: buildpacks-build-{{ .name }}-{{ regexReplaceAll "[|._]{1}" .tag "-" }}
   annotations:
     sidecar.istio.io/inject: "false"
+    argocd.argoproj.io/compare-options: IgnoreExtraneous
   labels: {{- include "team-ns.chart-labels" $ | nindent 4 }}
 spec:
   pipelineRef:

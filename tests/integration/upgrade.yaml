@@ -1,6 +1,6 @@
 # Minimal values file with defaults
 cluster:
-  name: 'dev'
+  name: CLUSTER_NAME_PLACEHOLDER
   k8sContext: CONTEXT_PLACEHOLDER
 otomi:
   version: v0.26.0
@@ -15,9 +15,6 @@ apps:
     enabled: true
   cert-manager:
     issuer: custom-ca
-  gatekeeper:
-    enabled: true
-    disableValidatingWebhook: false
   grafana:
     enabled: true
   harbor:
@@ -31,8 +28,6 @@ apps:
   kiali:
     enabled: true
   knative:
-    enabled: true
-  kube-descheduler:
     enabled: true
   kured:
     enabled: true
@@ -48,13 +43,11 @@ apps:
     enabled: true
   redis-shared:
     enabled: false
-  snapshot-controller:
+  sealed-secrets:
+    enabled: true
+  rabbitmq:
     enabled: true
   tempo:
-    enabled: true
-  thanos:
-    enabled: true
-  vault:
     enabled: true
 teamConfig:
   demo:
@@ -68,9 +61,9 @@ teamConfig:
         tag: v0.0.1
         mode:
           docker:
-            repoUrl: https://github.com/redkubes/nodejs-helloworld
+            repoUrl: https://github.com/linode/apl-nodejs-helloworld
             revision: HEAD
-            path: ./Docker
+            path: ./Dockerfile
           type: docker
       - name: demo-java-maven
         tag: v0.0.1
@@ -117,29 +110,29 @@ teamConfig:
         type: public
     workloads:
       - name: nodejs-helloworld
-        url: https://github.com/redkubes/nodejs-helloworld.git
-        path: /
+        url: https://github.com/linode/apl-nodejs-helloworld.git
+        path: chart/hello-world
         revision: HEAD
       - name: httpbin
         path: charts/httpbin
         revision: HEAD
-        url: https://github.com/redkubes/otomi-core.git
+        url: https://github.com/linode/apl-core.git
       - name: nginx-deployment
         path: deployment
         revision: main
-        selectedChart: deployment
-        url: https://github.com/redkubes/otomi-charts.git
+        selectedChart: k8s-deployment
+        url: https://github.com/linode/apl-charts.git
       - name: nginx-ksvc
-        path: ksvc
+        path: knative-service
         revision: main
         selectedChart: ksvc
-        url: https://github.com/redkubes/otomi-charts.git
+        url: https://github.com/linode/apl-charts.git
   admin:
     services: []
     workloads:
       - name: nodejs-helloworld
-        url: https://github.com/redkubes/nodejs-helloworld.git
-        path: /
+        url: https://github.com/linode/apl-nodejs-helloworld.git
+        path: chart/hello-world
         revision: HEAD
 files:
   env/teams/workloads/demo/nodejs-helloworld.yaml: |

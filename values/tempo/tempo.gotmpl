@@ -1,13 +1,20 @@
 {{- $v := .Values -}}
 {{- $t:= $v.apps.tempo }}
-{{- $st := $t.storage }}
+{{- $obj := $v.obj.provider }}
 
 
 fullnameOverride: tempo
 
 ingester:
+  replicas: {{ $t.autoscaling.ingester.minReplicas }}
   resources: {{- $t.resources.ingester | toYaml | nindent 4 }}
-  {{- if eq $st.type "filesystem" }}
+  autoscaling:
+    enabled: {{ $t.autoscaling.ingester.enabled }}
+    minReplicas: {{ $t.autoscaling.ingester.minReplicas }}
+    maxReplicas: {{ $t.autoscaling.ingester.maxReplicas }}
+    targetCPUUtilizationPercentage: {{ $t.autoscaling.ingester.targetCPUUtilizationPercentage }}
+    targetMemoryUtilizationPercentage: {{ $t.autoscaling.ingester.targetMemoryUtilizationPercentage }}
+  {{- if eq $obj.type "disabled" }}
   persistence:
     enabled: true
     size: {{ $t.persistence.ingester.size }} # default to 10Gi
@@ -15,6 +22,7 @@ ingester:
   {{- end }}
 
 distributor:
+  replicas: {{ $t.autoscaling.distributor.minReplicas }}
   resources: {{- $t.resources.distributor | toYaml | nindent 4 }}
   autoscaling:
     enabled: {{ $t.autoscaling.distributor.enabled }}
@@ -32,6 +40,7 @@ compactor:
   resources: {{- $t.resources.compactor | toYaml | nindent 4 }}
 
 querier:
+  replicas: {{ $t.autoscaling.querier.minReplicas }}
   resources: {{- $t.resources.querier | toYaml | nindent 4 }}
   autoscaling:
     enabled: {{ $t.autoscaling.querier.enabled }}
@@ -41,6 +50,7 @@ querier:
     targetMemoryUtilizationPercentage: {{ $t.autoscaling.querier.targetMemoryUtilizationPercentage }}
 
 queryFrontend:
+  replicas: {{ $t.autoscaling.queryFrontend.minReplicas }}
   resources: {{- $t.resources.queryFrontend | toYaml | nindent 4 }}
   autoscaling:
     enabled: {{ $t.autoscaling.queryFrontend.enabled }}
@@ -65,15 +75,11 @@ metricsGenerator:
       remote_write:
        - url: http://po-prometheus.monitoring:9090/api/v1/write
 
+{{- if eq $obj.type "minioLocal" "linode" }}
 storage:
   trace:
-    {{- if eq $st.type "minioLocal" "s3" }}
     backend: s3
-    {{- end }}
-    {{- if eq $st.type "azure" }}
-    backend: azure
-    {{- end }}    
-    {{- if eq $st.type "minioLocal" }}
+    {{- if eq $obj.type "minioLocal" }}
     s3:
       bucket: tempo
       endpoint: minio.minio.svc.cluster.local:9000
@@ -81,19 +87,14 @@ storage:
       secret_key: {{ $v.otomi.adminPassword }}                            
       insecure: true  
     {{- end }}
-    {{- if eq $st.type "s3" }}
+    {{- if eq $obj.type "linode" }}
     s3:
-      bucket: {{ $st.s3.bucket }}
-      endpoint: {{ $st.s3.s3Url }} 
-      access_key: {{ $st.s3.accessKeyId }}                         
-      secret_key: {{ $st.s3.secretAccessKey }}                           
+      bucket: {{ $obj.linode.buckets.tempo }}
+      endpoint: {{ $obj.linode.region }}.linodeobjects.com
+      access_key: {{ $obj.linode.accessKeyId }}                      
+      secret_key: {{ $obj.linode.secretAccessKey }}                           
     {{- end }}
-    {{- if eq $st.type "azure" }}
-    azure:
-      storage_account_name: {{ $st.azure.accountName }}
-      storage_account_key: {{ $st.azure.accountKey }}
-      container_name: {{ $st.azure.containerName }}
-    {{- end }}
+{{- end }}
 
 traces:
   otlp:

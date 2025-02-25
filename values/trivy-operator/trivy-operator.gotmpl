@@ -10,8 +10,13 @@ targetNamespaces: "{{- tpl $joinTpl (dict "list" $targets "sep" ",") }}"
 
 operator:
   replicas: {{ $t.operator.replicaCount }}
-  metricsVulnIdEnabled: true
+  metricsVulnIdEnabled: false
   infraAssessmentScannerEnabled: false
+  clusterComplianceEnabled: false
+  metricsImageInfo: true
+
+service:
+  headless: false
 
 serviceMonitor:
   enabled: true
@@ -20,10 +25,8 @@ serviceMonitor:
 
 trivy:
   mode: Standalone
-  resources: {{- $t.resources.trivy | toYaml | nindent 2 }}
-
-podAnnotations:
-  policy.otomi.io/ignore: psp-allowed-users
+  resources: {{- $t.resources.trivy | toYaml | nindent 4 }}
+  ignoreUnfixed: true
 
 podSecurityContext:
   runAsUser: 1001

@@ -1,18 +1,14 @@
 # Minimal values file with defaults
 cluster:
-  name: 'dev'
+  name: CLUSTER_NAME_PLACEHOLDER
   k8sContext: CONTEXT_PLACEHOLDER
 otomi:
   version: 'OTOMI_VERSION_PLACEHOLDER'
   adminPassword: welcomeotomi
 apps:
-  argocd:
-    enabled: true
   knative:
     enabled: true
   harbor:
-    enabled: true
-  sealed-secrets:
     enabled: true
 teamConfig:
   demo:
@@ -21,7 +17,6 @@ teamConfig:
     selfService:
       service:
         - ingress
-        - networkPolicy
     managedMonitoring:
       grafana: false
       prometheus: false
@@ -35,9 +30,9 @@ teamConfig:
         trigger: false
         mode:
           docker:
-            repoUrl: https://github.com/redkubes/nodejs-helloworld
+            repoUrl: https://github.com/linode/apl-nodejs-helloworld
             revision: HEAD
-            path: ./Docker
+            path: ./Dockerfile
           type: docker
       - name: demo-java-maven
         tag: v0.0.1
@@ -48,15 +43,6 @@ teamConfig:
             revision: HEAD
             path: apps/java-maven
           type: buildpacks
-      - name: demo-java-trigger
-        tag: v_0_0_1
-        trigger: true
-        mode:
-          docker:
-            repoUrl: https://github.com/buildpacks/samples
-            revision: HEAD
-            path: ./Docker
-          type: docker
     services:
       - headers:
           response:
@@ -64,18 +50,12 @@ teamConfig:
         id: 78595314-cdaf-4b60-acc2-3b1a7f80fe2b
         ingressClassName: platform
         name: httpbin
-        networkPolicy:
-          ingressPrivate:
-            mode: DenyAll
         ownHost: true
         port: 80
         type: public
       - id: a106eb22-8c06-41b6-ab15-97aafb0888b5
         ingressClassName: platform
         name: nginx-deployment
-        networkPolicy:
-          ingressPrivate:
-            mode: DenyAll
         ownHost: true
         paths: []
         port: 80
@@ -85,38 +65,35 @@ teamConfig:
         ksvc:
           predeployed: true
         name: nginx-ksvc
-        networkPolicy:
-          ingressPrivate:
-            mode: DenyAll
         ownHost: true
         paths: []
         port: 80
         type: public
     workloads:
       - name: nodejs-helloworld
-        url: https://github.com/redkubes/nodejs-helloworld.git
-        path: ./
+        url: https://github.com/linode/apl-nodejs-helloworld.git
+        path: chart/hello-world
         revision: HEAD
       - name: httpbin
         path: charts/httpbin
         revision: HEAD
-        url: https://github.com/redkubes/otomi-core.git
+        url: https://github.com/linode/apl-core.git
       - name: nginx-deployment
-        path: deployment
+        path: k8s-deployment
         revision: main
-        selectedChart: deployment
-        url: https://github.com/redkubes/otomi-charts.git
+        selectedChart: k8s-deployment
+        url: https://github.com/linode/apl-charts.git
       - name: nginx-ksvc
-        path: ksvc
+        path: knative-service
         revision: main
-        selectedChart: ksvc
-        url: https://github.com/redkubes/otomi-charts.git
+        selectedChart: knative-service
+        url: https://github.com/linode/apl-charts.git
   admin:
     services: []
     workloads:
       - name: nodejs-helloworld
-        url: https://github.com/redkubes/nodejs-helloworld.git
-        path: ./
+        url: https://github.com/linode/apl-nodejs-helloworld.git
+        path: chart/hello-world
         revision: HEAD
 files:
   env/teams/workloads/demo/nodejs-helloworld.yaml: |

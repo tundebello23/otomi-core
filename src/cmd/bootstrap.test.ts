@@ -9,6 +9,7 @@ import {
   bootstrapSops,
   copyBasicFiles,
   createCustomCA,
+  getKmsValues,
   getStoredClusterSecrets,
   handleFileEntry,
   processValues,
@@ -21,11 +22,16 @@ describe('Bootstrapping values', () => {
     apps: { 'cert-manager': { issuer: 'custom-ca' } },
     cluster: { name: 'bla', provider: 'dida' },
   }
+  const users = [{ id: 'user1', initialPassword: 'existing-password' }, { id: 'user2' }]
   const secrets = { secret: 'true', deep: { nested: 'secret' } }
   let deps
   beforeEach(() => {
     deps = {
-      $: jest.fn(),
+      $: jest.fn().mockReturnValue({
+        nothrow: jest.fn().mockReturnValue({
+          quiet: jest.fn(),
+        }),
+      }),
       bootstrapSops: jest.fn(),
       copyBasicFiles: jest.fn(),
       copyFile: jest.fn(),
@@ -72,14 +78,72 @@ describe('Bootstrapping values', () => {
     const res = await getStoredClusterSecrets(deps)
     expect(res).toEqual(undefined)
   })
-  it('should set apiName, k8sContext and owner if needed', async () => {
+  describe('getKmsValues', () => {
+    let kmsValuesDeps: any
+    const ageKeys = { publicKey: 'agePublicKey', privateKey: 'agePrivateKey' }
+    const values = { someKey: 'someValue' }
+    const kmsValues = {
+      kms: {
+        sops: {
+          provider: 'azure',
+          azure: {
+            keys: 'key1,key2',
+          },
+        },
+      },
+    }
+    const kmsValuesWithAgeProvider = {
+      kms: {
+        sops: {
+          provider: 'age',
+        },
+      },
+    }
+    const kmsValuesWithAgeFull = {
+      kms: {
+        sops: {
+          provider: 'age',
+          age: {
+            publicKey: 'publicKey',
+            privateKey: 'privateKey',
+          },
+        },
+      },
+    }
+    beforeEach(() => {
+      kmsValuesDeps = {
+        generateAgeKeys: jest.fn().mockResolvedValue(ageKeys),
+        hfValues: jest.fn(),
+      }
+    })
+    it('should not get kms values if those do not exist', async () => {
+      kmsValuesDeps.hfValues.mockReturnValue(values)
+      const res = await getKmsValues(kmsValuesDeps)
+      expect(res).toBeUndefined()
+    })
+    it('should get kms values if those exist', async () => {
+      kmsValuesDeps.hfValues.mockReturnValue({ ...values, ...kmsValues })
+      const res = await getKmsValues(kmsValuesDeps)
+      expect(res).toEqual(kmsValues)
+    })
+    it('should generate and return new age keys if provider is age and keys are missing', async () => {
+      kmsValuesDeps.hfValues.mockReturnValue({ ...values, ...kmsValuesWithAgeProvider })
+      const res = await getKmsValues(kmsValuesDeps)
+      expect(res).toEqual({ kms: { sops: { provider: 'age', age: ageKeys } } })
+    })
+    it('should get kms values if age has public and private key', async () => {
+      kmsValuesDeps.hfValues.mockReturnValue({ ...values, ...kmsValuesWithAgeFull })
+      const res = await getKmsValues(kmsValuesDeps)
+      expect(res).toEqual(kmsValuesWithAgeFull)
+    })
+  })
+  it('should set k8sContext and owner if needed', async () => {
     deps.processValues.mockReturnValue(values)
     deps.hfValues.mockReturnValue(values)
     await bootstrap(deps)
     expect(deps.writeValues).toHaveBeenCalledWith(
       expect.objectContaining({
         cluster: expect.objectContaining({
-          apiName: expect.any(String),
           k8sContext: expect.any(String),
           owner: expect.any(String),
         }),
@@ -193,6 +257,11 @@ describe('Bootstrapping values', () => {
   })
   describe('processing values', () => {
     const generatedSecrets = { gen: 'x' }
+    const generatedPassword = 'generated-password'
+    const usersWithPasswords = [
+      { id: 'user1', initialPassword: 'existing-password' },
+      { id: 'user2', initialPassword: generatedPassword },
+    ]
     const ca = { a: 'cert' }
     const mergedValues = merge(cloneDeep(values), cloneDeep(secrets))
     const mergedSecretsWithCa = merge(cloneDeep(secrets), cloneDeep(ca))
@@ -207,12 +276,17 @@ describe('Bootstrapping values', () => {
         existsSync: jest.fn(),
         generateSecrets: jest.fn().mockReturnValue(generatedSecrets),
         getStoredClusterSecrets: jest.fn().mockReturnValue(secrets),
+        getKmsValues: jest.fn().mockReturnValue({}),
         hfValues: jest.fn().mockReturnValue(values),
         isChart: true,
         loadYaml: jest.fn(),
         terminal,
         validateValues: jest.fn().mockReturnValue(true),
         writeValues: jest.fn(),
+        getUsers: jest.fn().mockReturnValue(usersWithPasswords),
+        generatePassword: jest.fn().mockReturnValue(generatedPassword),
+        addInitialPasswords: jest.fn().mockReturnValue(usersWithPasswords),
+        addPlatformAdmin: jest.fn().mockReturnValue(usersWithPasswords),
       }
     })
     describe('Creating CA', () => {
@@ -286,10 +360,15 @@ describe('Bootstrapping values', () => {
         expect(res).toEqual(mergedValues)
       })
       it('should merge original with generated values and write them to env dir', async () => {
-        const writtenValues = merge(cloneDeep(values), cloneDeep(mergedSecretsWithGenAndCa))
-        deps.loadYaml.mockReturnValue(values)
+        const writtenValues = merge(
+          cloneDeep(values),
+          cloneDeep(mergedSecretsWithGenAndCa),
+          cloneDeep({ users: usersWithPasswords }),
+        )
+        deps.loadYaml.mockReturnValue({ ...values, users })
         deps.getStoredClusterSecrets.mockReturnValue(secrets)
         deps.generateSecrets.mockReturnValue(generatedSecrets)
+        deps.getUsers.mockReturnValue(usersWithPasswords)
         await processValues(deps)
         expect(deps.writeValues).toHaveBeenNthCalledWith(2, writtenValues)
       })
@@ -301,7 +380,7 @@ describe('Bootstrapping values', () => {
       it('should retrieve previous user input when cluster provider is set', async () => {
         deps.loadYaml.mockReturnValue({ ...values, cluster: { provider: 'set' } })
         await processValues(deps)
-        expect(deps.hfValues).toHaveBeenCalledWith({ filesOnly: true })
+        expect(deps.hfValues).toHaveBeenCalledWith({ defaultValues: true })
       })
       it('should not validate values when starting empty', async () => {
         deps.hfValues.mockReturnValue(undefined)

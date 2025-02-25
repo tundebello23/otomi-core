@@ -148,7 +148,7 @@ let valuesSchema: Record<string, any>
 export const getValuesSchema = async (): Promise<Record<string, any>> => {
   if (valuesSchema) return valuesSchema
   const schema = await loadYaml(`${rootDir}/values-schema.yaml`)
-  const derefSchema = await $RefParser.dereference(schema as $RefParser.JSONSchema)
+  const derefSchema = await $RefParser.dereference(schema as JSONSchema)
   valuesSchema = omit(derefSchema, ['definitions'])
 
   return valuesSchema
@@ -161,7 +161,7 @@ export const stringContainsSome = (str: string, ...args: string[]): boolean => {
 
 const isCoreCheck = (): boolean => {
   if (packagePath === '/home/app/stack' || !existsSync(`${packagePath}/package.json`)) return false
-  return pkg.name === 'otomi-core'
+  return pkg.name === 'apl-core'
 }
 
 export const isCore: boolean = isCoreCheck()

@@ -83,7 +83,7 @@ export const getRepo = (values: Record<string, any>): Repo => {
     branch = otomiApiGit?.branch ?? branch
   } else {
     username = 'otomi-admin'
-    password = values?.apps?.gitea?.adminPassword ?? values?.otomi?.adminPassword
+    password = values?.apps?.gitea?.adminPassword
     email = `pipeline@cluster.local`
     const giteaUrl = `gitea-http.gitea.svc.cluster.local:3000`
     const giteaOrg = 'otomi'
@@ -191,14 +191,17 @@ export const writeValues = async (inValues: Record<string, any>, overwrite = fal
     'databases',
     'files',
     'bootstrap',
+    'users',
   ]
   const secretSettings = omit(secrets, fieldsToOmit)
   const license = { license: values?.license }
   const settings = omit(plainValues, fieldsToOmit)
+  const users = { users: values?.users }
   // and write to their files
   const promises: Promise<void>[] = []
   if (settings) promises.push(writeValuesToFile(`${env.ENV_DIR}/env/settings.yaml`, settings, overwrite))
   if (license) promises.push(writeValuesToFile(`${env.ENV_DIR}/env/secrets.license.yaml`, license, overwrite))
+  if (users) promises.push(writeValuesToFile(`${env.ENV_DIR}/env/secrets.users.yaml`, users, overwrite))
   if (secretSettings || overwrite)
     promises.push(writeValuesToFile(`${env.ENV_DIR}/env/secrets.settings.yaml`, secretSettings, overwrite))
   if (plainValues.cluster || overwrite)
@@ -210,20 +213,34 @@ export const writeValues = async (inValues: Record<string, any>, overwrite = fal
   if (plainValues.policies || overwrite)
     promises.push(writeValuesToFile(`${env.ENV_DIR}/env/policies.yaml`, { policies: plainValues.policies }, overwrite))
   if (plainValues.teamConfig || overwrite) {
-    const types = ['apps', 'backups', 'builds', 'jobs', 'secrets', 'services', 'workloads']
-    const fileMap = { secrets: 'external-secrets' }
+    const types = [
+      'apps',
+      'backups',
+      'builds',
+      'secrets',
+      'netpols',
+      'sealedsecrets',
+      'services',
+      'workloads',
+      'policies',
+    ]
     const teamConfig = plainValues.teamConfig ? cloneDeep(plainValues.teamConfig) : {}
     // eslint-disable-next-line @typescript-eslint/no-misused-promises
     teams.forEach(async (team) => {
       const teamPromises: Promise<void>[] = []
       types.forEach((type): void => {
-        const fileType = fileMap[type] || type
         teamPromises.push(
           writeValuesToFile(
-            `${env.ENV_DIR}/env/teams/${fileType}.${team}.yaml`,
+            `${env.ENV_DIR}/env/teams/${type}.${team}.yaml`,
             {
               teamConfig: {
-                [team]: { [type]: get(plainValues, `teamConfig.${team}.${type}`, type === 'apps' ? {} : []) },
+                [team]: {
+                  [type]: get(
+                    plainValues,
+                    `teamConfig.${team}.${type}`,
+                    type === 'apps' || type === 'policies' ? {} : [],
+                  ),
+                },
               },
             },
             overwrite,

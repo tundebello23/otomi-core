@@ -47,7 +47,8 @@ spec:
       scrapeTimeout: {{ . }}
       {{- end }}
       relabelings:
-        - sourceLabels: [job]
+        - action: replace
+          sourceLabels: [job]
           replacement: "{{ $.ctx.Release.Namespace }}/{{ $.component }}"
           targetLabel: job
         {{- if kindIs "string" .clusterLabel }}
@@ -57,6 +58,10 @@ spec:
         {{- with .relabelings }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
+      {{- with .metricRelabelings }}
+      metricRelabelings:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       {{- with .scheme }}
       scheme: {{ . }}
       {{- end }}
